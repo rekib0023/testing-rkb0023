@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legal AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .chat-container {
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-bottom: 20px;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+      .message {
+        margin-bottom: 15px;
+        padding: 10px;
+        border-radius: 8px;
+      }
+      .user-message {
+        background-color: #e3f2fd;
+        margin-left: 20%;
+      }
+      .assistant-message {
+        background-color: #f5f5f5;
+        margin-right: 20%;
+      }
+      .input-container {
+        display: flex;
+        gap: 10px;
+      }
+      #userInput {
+        flex-grow: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        font-size: 16px;
+      }
+      button {
+        padding: 10px 20px;
+        background-color: #2196f3;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      button:hover {
+        background-color: #1976d2;
+      }
+      .confidence {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 5px;
+      }
+      .sources {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #eee;
+      }
+      /* Markdown Styles */
+      .markdown-content {
+        line-height: 1.6;
+      }
+      .markdown-content h1,
+      .markdown-content h2,
+      .markdown-content h3 {
+        margin-top: 1em;
+        margin-bottom: 0.5em;
+        color: #333;
+      }
+      .markdown-content p {
+        margin-bottom: 1em;
+      }
+      .markdown-content code {
+        background-color: #f0f0f0;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-family: monospace;
+      }
+      .markdown-content pre {
+        background-color: #f5f5f5;
+        padding: 1em;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      .markdown-content blockquote {
+        border-left: 4px solid #ddd;
+        margin: 0;
+        padding-left: 1em;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Legal AI Assistant</h1>
+        <p class="subtitle">Your AI-powered legal research companion</p>
+      </header>
+
+      <main>
+        <div class="chat-container" id="chatContainer"></div>
+
+        <div class="input-container">
+          <input
+            type="text"
+            id="userInput"
+            placeholder="Ask a question about Indian law..."
+          />
+          <button onclick="sendMessage()">Send</button>
+        </div>
+
+        <div class="sidebar">
+          <div class="sidebar-section">
+            <h3>Document Upload</h3>
+            <div class="upload-container">
+              <input
+                type="file"
+                id="document-upload"
+                accept=".pdf,.txt,.doc,.docx"
+              />
+              <button id="upload-button">Upload Document</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>System Status</h3>
+            <div id="system-status" class="status-indicator">
+              <span class="status-dot"></span>
+              <span class="status-text">Checking...</span>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h3>Recent Sources</h3>
+            <div id="recent-sources" class="sources-list">
+              <!-- Sources will be added here dynamically -->
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+    <script>
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+        headerIds: false,
+      });
+
+      async function sendMessage() {
+        const userInput = document.getElementById("userInput");
+        const message = userInput.value.trim();
+        if (!message) return;
+
+        // Display user message
+        appendMessage("user", message);
+        userInput.value = "";
+
+        try {
+          const response = await fetch("/api/v1/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ message }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Network response was not ok");
+          }
+
+          const data = await response.json();
+          appendMessage(
+            "assistant",
+            data.response,
+            data.confidence,
+            data.sources
+          );
+        } catch (error) {
+          console.error("Error:", error);
+          appendMessage(
+            "assistant",
+            "Sorry, there was an error processing your request."
+          );
+        }
+      }
+
+      function appendMessage(role, content, confidence = null, sources = null) {
+        const chatContainer = document.getElementById("chatContainer");
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${role}-message`;
+
+        if (role === "assistant") {
+          // Create markdown content div
+          const markdownContent = document.createElement("div");
+          markdownContent.className = "markdown-content";
+          markdownContent.innerHTML = marked.parse(content);
+          messageDiv.appendChild(markdownContent);
+
+          // Add confidence if available
+          if (confidence !== null) {
+            const confidenceDiv = document.createElement("div");
+            confidenceDiv.className = "confidence";
+            confidenceDiv.textContent = `Confidence: ${(
+              confidence * 100
+            ).toFixed(1)}%`;
+            messageDiv.appendChild(confidenceDiv);
+          }
+
+          // Add sources if available
+          if (sources && sources.length > 0) {
+            const sourcesDiv = document.createElement("div");
+            sourcesDiv.className = "sources";
+            sourcesDiv.innerHTML =
+              "<strong>Sources:</strong><br>" +
+              sources
+                .map((source) => `- ${source.metadata.title || "Document"}`)
+                .join("<br>");
+            messageDiv.appendChild(sourcesDiv);
+          }
+        } else {
+          messageDiv.textContent = content;
+        }
+
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      // Handle Enter key
+      document
+        .getElementById("userInput")
+        .addEventListener("keypress", function (e) {
+          if (e.key === "Enter") {
+            sendMessage();
+          }
+        });
+    </script>
+  </body>
+</html>
