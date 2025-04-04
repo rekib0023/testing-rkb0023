@@ -36,8 +36,8 @@ class LegalUpdatesIngester:
             updates.extend(amendments)
 
             # Get government gazette notifications
-            notifications = self.legal_tool._get_gazette_notifications()
-            updates.extend(notifications)
+            # notifications = self.legal_tool._get_gazette_notifications()
+            # updates.extend(notifications)
 
             if updates:
                 # Create embeddings

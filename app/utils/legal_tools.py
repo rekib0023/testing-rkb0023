@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from langchain.tools import BaseTool
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.agents import Tool
@@ -24,7 +24,7 @@ class LegalUpdatesTool(BaseTool):
             "india_code": "https://www.indiacode.nic.in/",
             "prsindia": "https://prsindia.org/billtrack/",
             "legislative_gov": "https://legislative.gov.in/",
-            "egazette": "https://egazette.nic.in/",
+            # "egazette": "https://egazette.nic.in/",
         }
     )
 
@@ -71,14 +71,14 @@ class LegalUpdatesTool(BaseTool):
                 )
 
             # Search eGazette for notifications
-            notifications = self._get_gazette_notifications()
-            if notifications:
-                results.extend(
-                    [
-                        f"- Notification: {notif['title']} ({notif['url']})"
-                        for notif in notifications
-                    ]
-                )
+            # notifications = self._get_gazette_notifications()
+            # if notifications:
+            #     results.extend(
+            #         [
+            #             f"- Notification: {notif['title']} ({notif['url']})"
+            #             for notif in notifications
+            #         ]
+            #     )
 
             return (
                 "\n".join(results)

@@ -18,14 +18,14 @@ async def chat(
     # The chat_service now handles exceptions internally and returns a valid ChatResponse
     # We can directly return the result from the service
     logger.info(f"Received chat request: {request.message[:100]}...")
+    # The service now handles errors internally and returns a valid ChatResponse
     response_object = await chat_service.get_response(request.message, request.context)
-    # Check if the response indicates an internal error from the service
-    if response_object.confidence == 0.0 and response_object.response.startswith("Error:"):
-         logger.error(f"Chat service returned an error: {response_object.response}")
-         # Optionally, still raise HTTPException for client awareness, but use the service's error message
-         # raise HTTPException(status_code=500, detail=response_object.response)
-         # Or just return the error response object directly:
-         return response_object
+
+    # Log if the service returned an error message within the response
+    if response_object.response.startswith("Error:"):
+        logger.error(f"Chat service processing resulted in an error: {response_object.response}")
+        # We still return the response object as it conforms to the schema
     else:
         logger.info("Successfully processed chat request")
-        return response_object
+
+    return response_object

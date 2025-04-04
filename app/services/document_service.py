@@ -83,7 +83,7 @@ class DocumentService(BaseService):
             logger.error(f"Error ingesting document: {str(e)}")
             raise
 
-    async def search_documents(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    async def search_documents(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         """Search for relevant documents"""
         start_time = time.time()
         try:

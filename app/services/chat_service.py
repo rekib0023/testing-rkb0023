@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain.agents import AgentType, initialize_agent
 from langchain.memory import ConversationBufferMemory
 from app.services.base_service import BaseService
@@ -79,30 +79,49 @@ class ChatService(BaseService):
                 # Return a valid ChatResponse even if not initialized
                 error_msg = "Chat service not initialized"
                 self.logger.error(error_msg)
-                return ChatResponse(response=error_msg, sources=[], confidence=0.0)
+                # Return ChatResponse without confidence
+                return ChatResponse(response=error_msg, sources=[])
 
-            # Get relevant documents (search_documents returns a list of dicts with 'content' and 'metadata')
-            doc_results = await self.document_service.search_documents(query)
-            sources = [Source(content=doc['content'], metadata=doc['metadata']) for doc in doc_results] # Use dict access
-            doc_context_str = "\n---\n".join([doc['content'] for doc in doc_results]) # Use dict access and add separator
-
-
-            # Combine context
-            # The agent will use the legal_tools if necessary based on the query.
-            context_parts = [
-                f"Relevant Documents:\n{doc_context_str}",
-            ]
-
-            # Add additional context if provided
-            if context:
-                context_parts.append(f"Additional Context:\n{chr(10).join(context)}")
-
-            full_context = chr(10).join(context_parts)
-
-            # Get response from agent
-            response = await self.agent.arun(
-                input=f"Context: {full_context}\n\nUser Query: {query}"
+            # --- Prompt Engineering & Context Building ---
+            # Refined System Prompt: Emphasize using context first, tool second.
+            system_prompt = (
+                "You are a helpful legal AI assistant specializing in Indian law.\n"
+                "IMPORTANT: Your primary goal is to answer the user's query based *only* on the 'Relevant Documents' provided in the context.\n"
+                "1. Analyze the 'Relevant Documents' section carefully.\n"
+                "2. If the answer is found within the documents, provide the answer and cite the source document (e.g., 'According to [source filename]...').\n"
+                "3. If the answer is NOT found in the documents, state that clearly (e.g., 'The provided documents do not contain information about X.').\n"
+                "4. ONLY use the 'legal_updates' tool if the user explicitly asks for recent legal updates, bills, amendments, or government notifications.\n"
+                "Do NOT use the 'legal_updates' tool for general questions if the answer might be in the documents."
             )
+
+            # Get relevant documents and format them for context
+            doc_results = await self.document_service.search_documents(query)
+            sources = [Source(content=doc['content'], metadata=doc['metadata']) for doc in doc_results]
+
+            formatted_docs = []
+            for i, doc in enumerate(doc_results):
+                source_name = doc['metadata'].get('source', f'Document {i+1}')
+                formatted_docs.append(f"--- Document {i+1} (Source: {source_name}) ---\n{doc['content']}")
+            doc_context_str = "\n\n".join(formatted_docs)
+
+            # Combine context parts
+            context_parts = [f"--- Relevant Documents ---\n{doc_context_str}"]
+            if context:
+                context_parts.append(f"\n--- Additional Context ---\n{chr(10).join(context)}")
+
+            full_context = "\n".join(context_parts)
+
+            # Construct the final prompt for the agent
+            final_prompt = (
+                f"{system_prompt}\n\n"
+                f"--- Context ---\n{full_context}\n\n"
+                f"--- User Query ---\n{query}"
+            )
+
+            # Get response from agent using ainvoke
+            agent_input = {"input": final_prompt} # Use the engineered prompt
+            agent_response = await self.agent.ainvoke(agent_input)
+            response = agent_response.get("output", "Error: Could not parse agent response.")
 
             # Log the interaction
             await self.monitoring_service.log_interaction(
@@ -112,10 +131,8 @@ class ChatService(BaseService):
                 metadata={"context": context} if context else None,
             )
 
-            # TODO: Implement actual confidence calculation if possible
-            confidence = 0.9 # Placeholder confidence
-
-            return ChatResponse(response=response, sources=sources, confidence=confidence)
+            # Return ChatResponse without confidence
+            return ChatResponse(response=response, sources=sources)
 
         except Exception as e:
             error_msg = f"Error getting response: {str(e)}"
@@ -123,8 +140,8 @@ class ChatService(BaseService):
             await self.monitoring_service.log_error(
                 e, {"query": query, "context": context}
             )
-            # Return a valid ChatResponse object on error
-            return ChatResponse(response=error_msg, sources=[], confidence=0.0)
+            # Return ChatResponse without confidence on error
+            return ChatResponse(response=error_msg, sources=[])
 
     def get_chat_history(self) -> List[Dict[str, str]]:
         """Get the chat history.

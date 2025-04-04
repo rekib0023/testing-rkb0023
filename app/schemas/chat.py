@@ -15,4 +15,4 @@ class Source(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     sources: List[Source]
-    confidence: float
+    # confidence: float # Removed confidence score
