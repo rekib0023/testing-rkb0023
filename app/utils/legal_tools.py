@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from app.config.config import settings
 from app.core.logging_config import get_logger
+from pydantic import Field
 
 logger = get_logger(__name__)
 
@@ -18,24 +19,34 @@ class LegalUpdatesTool(BaseTool):
         "Search for legal updates including bills, amendments, and government notifications"
     )
 
-    def __init__(self):
-        super().__init__()
-        self.base_urls = {
+    base_urls: Dict[str, str] = Field(
+        default={
             "india_code": "https://www.indiacode.nic.in/",
             "prsindia": "https://prsindia.org/billtrack/",
             "legislative_gov": "https://legislative.gov.in/",
             "egazette": "https://egazette.nic.in/",
         }
-        self.headers = {
+    )
+
+    headers: Dict[str, str] = Field(
+        default={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        self.embeddings = OllamaEmbeddings(
+    )
+
+    embeddings: OllamaEmbeddings = Field(
+        default_factory=lambda: OllamaEmbeddings(
             model=settings.EMBEDDING_MODEL, base_url=settings.OLLAMA_BASE_URL
         )
-        self.text_splitter = RecursiveCharacterTextSplitter(
+    )
+
+    text_splitter: RecursiveCharacterTextSplitter = Field(
+        default_factory=lambda: RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200
         )
-        self.vector_store = None
+    )
+
+    vector_store: Optional[FAISS] = Field(default=None)
 
     def _run(self, query: str) -> str:
         """Search for legal updates based on the query."""

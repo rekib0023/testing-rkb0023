@@ -1,164 +1,129 @@
 from typing import List, Dict, Any, Optional
-from app.core.base_service import BaseService
+from langchain_community.chat_models import ChatOllama
+from langchain.agents import AgentType, initialize_agent
+from langchain.memory import ConversationBufferMemory
+from app.services.base_service import BaseService
 from app.services.document_service import DocumentService
-from app.core.monitoring import MonitoringService
+from app.services.monitoring_service import MonitoringService
+from app.utils.legal_tools import get_legal_tools
 from app.core.logging_config import get_logger
 from app.config.config import settings
-import json
-from langchain_ollama import OllamaLLM
-from app.utils.legal_tools import get_legal_tools
-from langchain.agents import initialize_agent, AgentType
-from langchain.tools import Tool
-import chromadb
-from chromadb.config import Settings
 
 logger = get_logger(__name__)
 
 
 class ChatService(BaseService):
+    """Service for handling chat interactions with legal AI."""
+
     def __init__(self):
+        """Initialize the chat service."""
         super().__init__()
         self.document_service = DocumentService()
-        self.chat_history = []
-        self.monitoring = MonitoringService()
-
-        # Initialize ChromaDB client
-        self.chroma_client = chromadb.PersistentClient(
-            path=settings.CHROMA_DB_PATH, settings=Settings(allow_reset=True)
+        self.monitoring_service = MonitoringService()
+        self.memory = ConversationBufferMemory(
+            memory_key="chat_history", return_messages=True
         )
-        self.legal_collection = self.chroma_client.get_or_create_collection(
-            name="legal_updates", metadata={"hnsw:space": "cosine"}
+        self.llm = ChatOllama(
+            model=settings.CHAT_MODEL, base_url=settings.OLLAMA_BASE_URL
         )
-
-        # Initialize Langchain Ollama with simpler configuration
-        self.llm = OllamaLLM(
-            model=settings.CHAT_MODEL,
-            base_url=settings.OLLAMA_BASE_URL,
-            temperature=0.7,
-        )
-
-        # Initialize legal tools
+        self.agent = None
         self.legal_tools = get_legal_tools()
 
-        # Create agent with legal tools
-        self.agent = initialize_agent(
-            tools=self.legal_tools,
-            llm=self.llm,
-            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            verbose=True,
-        )
-
     async def initialize(self) -> None:
-        """Initialize services"""
+        """Initialize the chat service and its dependencies."""
         try:
-            logger.info("Initializing ChatService")
-            await self.monitoring.initialize()
             await self.document_service.initialize()
-            logger.info("ChatService initialized successfully")
+            await self.monitoring_service.initialize()
+
+            # Initialize the agent with legal tools
+            self.agent = initialize_agent(
+                tools=self.legal_tools,
+                llm=self.llm,
+                agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                verbose=True,
+                memory=self.memory,
+                handle_parsing_errors=True,
+            )
+
+            self.logger.info("Chat service initialized successfully")
         except Exception as e:
-            logger.error(f"Error initializing ChatService: {str(e)}", exc_info=True)
+            self.logger.error(f"Error initializing chat service: {str(e)}")
             raise
 
     async def cleanup(self) -> None:
-        """Clean up resources"""
-        logger.info("Cleaning up ChatService")
-        await self.document_service.cleanup()
-        await self.monitoring.cleanup()
-        self.chat_history = []
+        """Clean up resources used by the chat service."""
+        try:
+            await self.document_service.cleanup()
+            await self.monitoring_service.cleanup()
+            self.memory.clear()
+            self.logger.info("Chat service cleaned up successfully")
+        except Exception as e:
+            self.logger.error(f"Error cleaning up chat service: {str(e)}")
+            raise
 
     async def get_response(
         self, query: str, context: Optional[List[str]] = None
-    ) -> Dict:
-        """Get a response for the given query"""
+    ) -> str:
+        """Get a response for the given query.
+
+        Args:
+            query: The user's query string.
+            context: Optional list of context strings to include in the response.
+
+        Returns:
+            str: The generated response.
+        """
         try:
-            # Search ChromaDB for relevant legal updates
-            legal_results = self.legal_collection.query(
-                query_texts=[query], n_results=3
-            )
+            if not self.agent:
+                raise ValueError("Chat service not initialized")
 
-            # Search for relevant documents
-            doc_results = await self.document_service.search_documents(query)
+            # Get relevant documents
+            docs = await self.document_service.search_documents(query)
 
-            # Combine results
-            all_results = []
-            if legal_results and legal_results["documents"]:
-                all_results.extend(
-                    [
-                        {"content": doc, "metadata": meta, "distance": dist}
-                        for doc, meta, dist in zip(
-                            legal_results["documents"][0],
-                            legal_results["metadatas"][0],
-                            legal_results["distances"][0],
-                        )
-                    ]
-                )
+            # Get legal updates
+            legal_updates = self.legal_tools[0]._run(query)
 
-            if doc_results:
-                all_results.extend(doc_results)
-
-            # Handle case when no relevant documents are found
-            if not all_results:
-                logger.warning(f"No relevant documents found for query: {query}")
-                context_text = "No relevant legal documents were found for this query."
-                confidence = 0.0
-            else:
-                # Calculate confidence score
-                total_score = sum(result["distance"] for result in all_results)
-                confidence = 1.0 - min(1.0, total_score / len(all_results))
-
-                # Prepare context from search results
-                context_text = "\n\n".join(
-                    [
-                        f"Document {i+1}:\n{result['content']}"
-                        for i, result in enumerate(all_results)
-                    ]
-                )
+            # Combine context
+            context_parts = [
+                f"Relevant Documents:\n{docs}",
+                f"Legal Updates:\n{legal_updates}",
+            ]
 
             # Add additional context if provided
-            if context and isinstance(context, list):
-                additional_context = "\n\n".join(context)
-                context_text = (
-                    f"{context_text}\n\nAdditional Context:\n{additional_context}"
-                )
+            if context:
+                context_parts.append(f"Additional Context:\n{chr(10).join(context)}")
 
-            system_prompt = """You are a legal AI assistant specializing in Indian law.
-            Your responses should be clear, accurate, and based on the provided legal documents.
-            Format your responses using Markdown for better readability.
-            When citing legal articles, use proper formatting and reference the specific article numbers."""
+            full_context = chr(10).join(context_parts)
 
-            user_prompt = f"""Based on the following context and using available legal tools,
-                please answer this question: {query}
+            # Get response from agent
+            response = await self.agent.arun(
+                input=f"Context: {full_context}\n\nUser Query: {query}"
+            )
 
-                Context:
-                {context_text}
+            # Log the interaction
+            await self.monitoring_service.log_interaction(
+                query=query,
+                response=response,
+                source="chat",
+                metadata={"context": context} if context else None,
+            )
 
-                If no relevant information is found, use the legal tools to search for
-                recent updates and provide a comprehensive response."""
-
-            # Use agent to get response with legal tools
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            agent_response = self.agent.run(full_prompt)
-
-            return {
-                "response": agent_response,
-                "confidence": confidence,
-                "sources": [
-                    {"content": result["content"], "metadata": result["metadata"]}
-                    for result in (all_results or [])
-                ],
-            }
-
+            return response
         except Exception as e:
-            self.monitoring.track_error(e)
-            logger.error(f"Error in get_response: {str(e)}")
-            raise
+            self.logger.error(f"Error getting response: {str(e)}")
+            await self.monitoring_service.log_error(
+                e, {"query": query, "context": context}
+            )
+            return f"Error: {str(e)}"
 
     def get_chat_history(self) -> List[Dict[str, str]]:
-        """Get the chat history"""
-        logger.debug("Retrieving chat history")
-        return self.chat_history
+        """Get the chat history.
+
+        Returns:
+            List[Dict[str, str]]: The chat history messages.
+        """
+        return self.memory.chat_memory.messages
 
     def clear_history(self) -> None:
-        """Clear the chat history"""
-        logger.info("Clearing chat history")
-        self.chat_history = []
+        """Clear the chat history."""
+        self.memory.clear()
