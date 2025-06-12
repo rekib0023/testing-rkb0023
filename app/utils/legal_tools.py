@@ -8,15 +8,17 @@ import requests
 from bs4 import BeautifulSoup
 from app.config.config import settings
 from app.core.logging_config import get_logger
-from pydantic import Field
+from pydantic import Field, BaseModel
+from app.services.document_service import DocumentService
 
 logger = get_logger(__name__)
 
 
 class LegalUpdatesTool(BaseTool):
+    """Tool to use when the query cannot be answered from context or other tools."""
     name: str = "legal_updates_search"
     description: str = (
-        "Search for legal updates including bills, amendments, and government notifications"
+        "Search for legal updates including bills, amendments, and government notifications. If no legal updates are found, attempt to answer from existing documents."
     )
 
     base_urls: Dict[str, str] = Field(
@@ -48,7 +50,7 @@ class LegalUpdatesTool(BaseTool):
 
     vector_store: Optional[FAISS] = Field(default=None)
 
-    def _run(self, query: str) -> str:
+    async def _run(self, query: str) -> str:
         """Search for legal updates based on the query."""
         try:
             results = []
@@ -80,15 +82,33 @@ class LegalUpdatesTool(BaseTool):
             #         ]
             #     )
 
-            return (
-                "\n".join(results)
-                if results
-                else "No legal updates found matching your query."
-            )
-
         except Exception as e:
             logger.error(f"Error searching legal updates: {str(e)}")
-            return f"Error searching legal updates: {str(e)}"
+            results.append(f"Error searching legal updates: {str(e)}")
+
+        # If no legal updates are found, attempt to answer from existing documents
+        if not results:
+            try:
+                document_service = DocumentService()
+                doc_results = await document_service.search_documents(query)
+                if doc_results:
+                    formatted_docs = []
+                    for i, doc in enumerate(doc_results):
+                        source_name = doc['metadata'].get('source', f'Document {i+1}')
+                        formatted_docs.append(f"Source: {source_name}\nContent: {doc['content']}")
+                    doc_context_str = "\n\n".join(formatted_docs)
+                    results.append(f"Based on existing documents:\n{doc_context_str}")
+                else:
+                    results.append("No relevant documents found.")
+            except Exception as e:
+                logger.error(f"Error searching documents: {str(e)}")
+                results.append(f"Error searching documents: {str(e)}")
+
+        return (
+            "\n".join(results)
+            if results
+            else "I cannot answer this question based on the available information and tools."
+        )
 
     def _get_recent_bills(self) -> List[Dict[str, Any]]:
         """Fetch recent bills from PRS India."""
@@ -195,17 +215,40 @@ class LegalUpdatesTool(BaseTool):
             return [doc.metadata for doc in docs]
         except Exception as e:
             logger.error(f"Error searching similar documents: {str(e)}")
-            return []
 
 
-def get_legal_tools() -> List[Tool]:
+class CannotAnswerTool(BaseTool):
+    """Tool to use when the query cannot be answered from context or other tools."""
+    name: str = "cannot_answer"
+    description: str = (
+        "Use this tool ONLY when the user's query cannot be answered using the "
+        "provided context (documents and chat history) and the 'legal_updates' tool is not relevant."
+    )
+
+    def _run(self, query: str) -> str:
+        """Returns a fixed message indicating inability to answer."""
+        # The 'query' argument is required by the interface but not used here.
+        return "I cannot answer this question based on the available information and tools."
+
+    async def _arun(self, query: str) -> str:
+        """Asynchronous version."""
+        return self._run(query)
+
+
+def get_legal_tools() -> List[BaseTool]: # Changed return type hint
     """Get all legal-related tools."""
-    legal_updates_tool = LegalUpdatesTool()
-
+    tools: List[BaseTool] = [
+        LegalUpdatesTool(),
+        CannotAnswerTool()
+    ]
+    # Convert BaseTool instances to Langchain Tool objects for the agent
+    # Note: Using tool._run directly might bypass some Langchain features like callbacks.
+    # Consider wrapping them properly if needed, but this matches the previous structure.
     return [
         Tool(
-            name="legal_updates",
-            func=legal_updates_tool._run,
-            description="Search for legal updates including bills, amendments, and government notifications",
-        )
+            name=tool.name,
+            func=tool._arun, # Using async _arun
+            description=tool.description,
+            coroutine=tool._arun
+        ) for tool in tools
     ]

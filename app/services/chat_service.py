@@ -36,10 +36,23 @@ class ChatService(BaseService):
             await self.document_service.initialize()
             await self.monitoring_service.initialize()
 
-            # Initialize the agent with legal tools
+            # Define the system prompt for the agent
+            system_prompt = (
+                "You are a helpful legal AI assistant specializing in Indian law.\n"
+                "IMPORTANT: Your primary goal is to answer the user's query based *only* on the 'Relevant Documents' provided in the context AND the ongoing 'Chat History'.\n"
+                "1. Analyze the 'Relevant Documents' section and the 'Chat History' carefully.\n"
+                "2. **Identify the key points from each document and combine them into a concise and coherent answer.**\n" # Added instruction to synthesize
+                "3. If the answer is found within the documents or history, provide the answer and cite the source document if applicable (e.g., 'According to [source filename]...' or 'As mentioned earlier...').\n"
+                "4. If the user asks for recent legal updates, bills, amendments, or government notifications, or if you cannot find an answer in the documents or history, use the 'legal_updates_search' tool.\n"
+                "5. If the 'legal_updates_search' tool also cannot find an answer, use the 'cannot_answer' tool.\n" # Added instruction for cannot_answer tool
+                "Do NOT use the 'legal_updates' tool for general questions if the answer might be in the documents or history."
+            )
+
+            # Initialize the agent with legal tools and system prompt
             self.agent = initialize_agent(
                 tools=self.legal_tools,
                 llm=self.llm,
+                agent_kwargs={"system_message": system_prompt}, # Pass system prompt here
                 agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
                 verbose=True,
                 memory=self.memory,
@@ -80,46 +93,43 @@ class ChatService(BaseService):
                 error_msg = "Chat service not initialized"
                 self.logger.error(error_msg)
                 # Return ChatResponse without confidence
+                error_msg = "Chat service not initialized"
+                self.logger.error(error_msg)
+                # Return ChatResponse without confidence
                 return ChatResponse(response=error_msg, sources=[])
 
-            # --- Prompt Engineering & Context Building ---
-            # Refined System Prompt: Emphasize using context first, tool second.
-            system_prompt = (
-                "You are a helpful legal AI assistant specializing in Indian law.\n"
-                "IMPORTANT: Your primary goal is to answer the user's query based *only* on the 'Relevant Documents' provided in the context.\n"
-                "1. Analyze the 'Relevant Documents' section carefully.\n"
-                "2. If the answer is found within the documents, provide the answer and cite the source document (e.g., 'According to [source filename]...').\n"
-                "3. If the answer is NOT found in the documents, state that clearly (e.g., 'The provided documents do not contain information about X.').\n"
-                "4. ONLY use the 'legal_updates' tool if the user explicitly asks for recent legal updates, bills, amendments, or government notifications.\n"
-                "Do NOT use the 'legal_updates' tool for general questions if the answer might be in the documents."
-            )
-
+            # --- Context Building ---
             # Get relevant documents and format them for context
             doc_results = await self.document_service.search_documents(query)
-            sources = [Source(content=doc['content'], metadata=doc['metadata']) for doc in doc_results]
+            sources = [Source(content=doc['content'], metadata=doc['metadata']) for doc in doc_results] # Keep sources for the final response
 
+            # Format documents for the input to the agent - use only the first two sentences
             formatted_docs = []
-            for i, doc in enumerate(doc_results):
-                source_name = doc['metadata'].get('source', f'Document {i+1}')
-                formatted_docs.append(f"--- Document {i+1} (Source: {source_name}) ---\n{doc['content']}")
-            doc_context_str = "\n\n".join(formatted_docs)
+            if doc_results:
+                 formatted_docs.append("--- Relevant Documents ---")
+                 for i, doc in enumerate(doc_results):
+                     source_name = doc['metadata'].get('source', f'Document {i+1}')
+                     # Extract the first two sentences
+                     sentences = doc['content'].split('.')
+                     first_two_sentences = '.'.join(sentences[:2]) + '.' if len(sentences) >= 2 else doc['content']
+                     formatted_docs.append(f"Source: {source_name}\nContent: {first_two_sentences}")
+                 doc_context_str = "\n\n".join(formatted_docs)
+            else:
+                 doc_context_str = "No relevant documents found."
 
-            # Combine context parts
-            context_parts = [f"--- Relevant Documents ---\n{doc_context_str}"]
+
+            # Combine retrieved documents context with any additional provided context
+            input_context = doc_context_str
             if context:
-                context_parts.append(f"\n--- Additional Context ---\n{chr(10).join(context)}")
+                input_context += f"\n\n--- Additional Context ---\n{chr(10).join(context)}"
 
-            full_context = "\n".join(context_parts)
-
-            # Construct the final prompt for the agent
-            final_prompt = (
-                f"{system_prompt}\n\n"
-                f"--- Context ---\n{full_context}\n\n"
-                f"--- User Query ---\n{query}"
-            )
+            # Prepare the input for the agent. The agent framework will handle combining
+            # this with chat_history and the system_prompt provided during initialization.
+            agent_input = {
+                "input": f"Context:\n{input_context}\n\nUser Query: {query}"
+            }
 
             # Get response from agent using ainvoke
-            agent_input = {"input": final_prompt} # Use the engineered prompt
             agent_response = await self.agent.ainvoke(agent_input)
             response = agent_response.get("output", "Error: Could not parse agent response.")
 
