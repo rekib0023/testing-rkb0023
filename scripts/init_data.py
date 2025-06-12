@@ -1,6 +1,6 @@
-import os
 import json
 from pathlib import Path
+
 from app.data.ingestion import DataIngestion
 
 

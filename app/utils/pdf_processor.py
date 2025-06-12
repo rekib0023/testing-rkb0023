@@ -1,11 +1,11 @@
-from typing import List, Dict, Any, Optional, Union
-from pypdf import PdfReader
+import json
 import os
 from pathlib import Path
-import json
+from typing import Any, Dict, List, Union
+
 import pypdf
-from pdf2image import convert_from_path
 import pytesseract
+from pdf2image import convert_from_path
 
 
 class PDFProcessor:
@@ -50,7 +50,7 @@ class PDFProcessor:
                     page_text = page.extract_text()
                     text.append(page_text)
                     if i < 2:  # Show first two pages for debugging
-                        print(f"\nPage {i+1} sample (first 500 chars):")
+                        print(f"\nPage {i + 1} sample (first 500 chars):")
                         print(page_text[:500])
             return "\n".join(text)
         except Exception as e:
@@ -68,7 +68,7 @@ class PDFProcessor:
             # Extract text from each image using OCR
             text = []
             for i, image in enumerate(images):
-                print(f"Processing page {i+1} with OCR...")
+                print(f"Processing page {i + 1} with OCR...")
                 # Save image temporarily
                 image_path = self.temp_dir / f"page_{i}.png"
                 image.save(str(image_path))
@@ -79,7 +79,7 @@ class PDFProcessor:
 
                 # Show sample of first two pages
                 if i < 2:
-                    print(f"\nPage {i+1} OCR sample (first 500 chars):")
+                    print(f"\nPage {i + 1} OCR sample (first 500 chars):")
                     print(page_text[:500])
 
                 # Clean up temporary image
