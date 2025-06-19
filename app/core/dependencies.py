@@ -1,6 +1,5 @@
-from fastapi import Depends
-from app.services.document_service import DocumentService
 from app.services.chat_service import ChatService
+from app.services.document_service import DocumentService
 
 _document_service = None
 _chat_service = None

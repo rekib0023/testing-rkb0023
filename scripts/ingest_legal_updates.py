@@ -1,10 +1,11 @@
 import asyncio
-from typing import List, Dict, Any
+
 import chromadb
 from chromadb.config import Settings
-from app.utils.legal_tools import LegalUpdatesTool
+
 from app.config.config import settings
 from app.core.logging_config import get_logger
+from app.utils.legal_tools import LegalUpdatesTool
 
 logger = get_logger(__name__)
 

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
-from app.core.monitoring import MonitoringService
-from app.core.dependencies import get_document_service, get_chat_service
-from app.services.document_service import DocumentService
-from app.services.chat_service import ChatService
+
 from app.config.config import settings
+from app.core.dependencies import get_chat_service, get_document_service
+from app.services.chat_service import ChatService
+from app.services.document_service import DocumentService
 
 router = APIRouter(prefix=settings.API_V1_STR)
 

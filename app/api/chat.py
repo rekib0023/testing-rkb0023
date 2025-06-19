@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import Optional, List
-from app.services.chat_service import ChatService
+from fastapi import APIRouter, Depends
+
 from app.core.dependencies import get_chat_service
 from app.core.logging_config import get_logger
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.chat_service import ChatService
 
 logger = get_logger(__name__)
 
@@ -23,7 +23,9 @@ async def chat(
 
     # Log if the service returned an error message within the response
     if response_object.response.startswith("Error:"):
-        logger.error(f"Chat service processing resulted in an error: {response_object.response}")
+        logger.error(
+            f"Chat service processing resulted in an error: {response_object.response}"
+        )
         # We still return the response object as it conforms to the schema
     else:
         logger.info("Successfully processed chat request")
