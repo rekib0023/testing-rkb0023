@@ -1,14 +1,16 @@
-from typing import List, Dict, Any, Optional
-from langchain.tools import BaseTool
-from langchain_ollama import OllamaEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.agents import Tool
+from typing import Any, Dict, List, Optional
+
 import requests
 from bs4 import BeautifulSoup
+from langchain.agents import Tool
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.tools import BaseTool
+from langchain_community.vectorstores import FAISS
+from langchain_ollama import OllamaEmbeddings
+from pydantic import Field
+
 from app.config.config import settings
 from app.core.logging_config import get_logger
-from pydantic import Field, BaseModel
 from app.services.document_service import DocumentService
 
 logger = get_logger(__name__)
@@ -16,10 +18,9 @@ logger = get_logger(__name__)
 
 class LegalUpdatesTool(BaseTool):
     """Tool to use when the query cannot be answered from context or other tools."""
+
     name: str = "legal_updates_search"
-    description: str = (
-        "Search for legal updates including bills, amendments, and government notifications. If no legal updates are found, attempt to answer from existing documents."
-    )
+    description: str = "Search for legal updates including bills, amendments, and government notifications. If no legal updates are found, attempt to answer from existing documents."
 
     base_urls: Dict[str, str] = Field(
         default={
@@ -94,8 +95,10 @@ class LegalUpdatesTool(BaseTool):
                 if doc_results:
                     formatted_docs = []
                     for i, doc in enumerate(doc_results):
-                        source_name = doc['metadata'].get('source', f'Document {i+1}')
-                        formatted_docs.append(f"Source: {source_name}\nContent: {doc['content']}")
+                        source_name = doc["metadata"].get("source", f"Document {i + 1}")
+                        formatted_docs.append(
+                            f"Source: {source_name}\nContent: {doc['content']}"
+                        )
                     doc_context_str = "\n\n".join(formatted_docs)
                     results.append(f"Based on existing documents:\n{doc_context_str}")
                 else:
@@ -219,6 +222,7 @@ class LegalUpdatesTool(BaseTool):
 
 class CannotAnswerTool(BaseTool):
     """Tool to use when the query cannot be answered from context or other tools."""
+
     name: str = "cannot_answer"
     description: str = (
         "Use this tool ONLY when the user's query cannot be answered using the "
@@ -235,20 +239,18 @@ class CannotAnswerTool(BaseTool):
         return self._run(query)
 
 
-def get_legal_tools() -> List[BaseTool]: # Changed return type hint
+def get_legal_tools() -> List[BaseTool]:  # Changed return type hint
     """Get all legal-related tools."""
-    tools: List[BaseTool] = [
-        LegalUpdatesTool(),
-        CannotAnswerTool()
-    ]
+    tools: List[BaseTool] = [LegalUpdatesTool(), CannotAnswerTool()]
     # Convert BaseTool instances to Langchain Tool objects for the agent
     # Note: Using tool._run directly might bypass some Langchain features like callbacks.
     # Consider wrapping them properly if needed, but this matches the previous structure.
     return [
         Tool(
             name=tool.name,
-            func=tool._arun, # Using async _arun
+            func=tool._arun,  # Using async _arun
             description=tool.description,
-            coroutine=tool._arun
-        ) for tool in tools
+            coroutine=tool._arun,
+        )
+        for tool in tools
     ]

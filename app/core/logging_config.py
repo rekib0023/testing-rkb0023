@@ -1,7 +1,7 @@
 import logging
 import sys
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # Create logs directory if it doesn't exist
 log_dir = Path("logs")
@@ -12,7 +12,9 @@ log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messa
 
 # Configure file handler
 file_handler = RotatingFileHandler(
-    log_dir / "legal_ai.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
+    log_dir / "legal_ai.log",
+    maxBytes=10 * 1024 * 1024,
+    backupCount=5,  # 10MB
 )
 file_handler.setFormatter(log_format)
 file_handler.setLevel(logging.INFO)

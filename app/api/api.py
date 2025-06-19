@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+
 from app.config.config import settings
 from app.core.dependencies import get_chat_service, get_document_service
 from app.services.chat_service import ChatService
