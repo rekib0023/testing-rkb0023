@@ -10,8 +10,6 @@ A legal AI assistant that helps users understand and search through Indian legal
 - Integration with Ollama for LLM capabilities
 - FastAPI backend for API interactions
 
----
-
 ## Setup
 
 1. Create a virtual environment:
