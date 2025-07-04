@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
+
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
